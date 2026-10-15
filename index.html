@@ -39,6 +39,8 @@
     .panel { min-width: 0; background: var(--card); border: 1px solid var(--line); border-radius: 15px; box-shadow: 0 6px 30px rgba(33, 54, 78, .035); }
     .chart-panel { padding: 20px 22px 14px; display: flex; flex-direction: column; }
     .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+    .chart-head-actions { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 9px; }
+    .save-image-btn { min-height: 34px; padding: 0 12px; font-size: 12px; color: #165b7c; border-color: #c9deea; white-space: nowrap; }
     h2 { font-size: 16px; font-weight: 750; letter-spacing: -.014em; margin: 0; }
     .status { display: inline-flex; align-items: center; gap: 7px; color: #53677b; font-size: 12px; background: #f4f7fa; padding: 6px 10px; border-radius: 8px; }
     .status-dot { width: 7px; height: 7px; flex: none; border-radius: 50%; background: #8ca0af; }
@@ -140,8 +142,11 @@
         <div class="panel chart-panel">
           <div class="panel-head">
             <h2>Altitude response</h2>
-            <div class="status" id="status" role="status" aria-live="polite">
-              <span class="status-dot"></span><span id="status-text">Ready to simulate</span>
+            <div class="chart-head-actions">
+              <button id="save-chart" class="save-image-btn" type="button" disabled title="Download a high-resolution PNG of the chart and legend">Save chart as PNG</button>
+              <div class="status" id="status" role="status" aria-live="polite">
+                <span class="status-dot"></span><span id="status-text">Ready to simulate</span>
+              </div>
             </div>
           </div>
           <div class="chart-stage">
@@ -259,6 +264,7 @@
     const scrub = $("scrub");
     const startButton = $("start");
     const clearButton = $("clear");
+    const saveChartButton = $("save-chart");
     const status = $("status");
     const statusText = $("status-text");
     const droneIcon = $("drone-icon");
@@ -322,6 +328,7 @@
     function updateButtons() {
       startButton.disabled = running || !gainsDirty;
       clearButton.disabled = running;
+      saveChartButton.disabled = traces.length === 0;
       scrub.disabled = running || !activeFinished;
       $("scrub-hint").textContent = scrub.disabled
         ? "Available after the current simulation finishes."
@@ -483,11 +490,12 @@
       return (normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10) * 10 ** exponent;
     }
 
-    function drawChart() {
-      if (!ctx || chartWidth <= 0 || chartHeight <= 0) return;
-      const w = chartWidth;
-      const h = chartHeight;
+    function drawChart(targetContext = ctx, w = chartWidth, h = chartHeight) {
+      if (!targetContext || w <= 0 || h <= 0) return;
+      const ctx = targetContext;
       ctx.clearRect(0, 0, w, h);
+      ctx.fillStyle = "#ffffff"; // Opaque white background for printable PNGs.
+      ctx.fillRect(0, 0, w, h);
       const plot = { x: 61, y: 20, w: Math.max(10, w - 83), h: Math.max(10, h - 72) };
       let minY = -1;
       let maxY = 15;
@@ -577,6 +585,93 @@
       ctx.restore();
     }
 
+    function saveChartAsPNG() {
+      if (traces.length === 0) return;
+
+      // Render the chart again at print-friendly resolution. Exporting the visible
+      // canvas directly would omit the HTML legend and could be blurry.
+      const width = 1120;
+      const margin = 38;
+      const headerHeight = 84;
+      const chartHeight = 510;
+      const legendColumns = 2;
+      const legendEntries = [
+        { label: "Reference step: 10 ft", color: "#748599", dashed: true },
+        ...traces.map((trace) => ({
+          label: `Trace ${trace.id}: Kp ${fixed(trace.kp, 1)}, Ki ${fixed(trace.ki, 1)}, Kd ${fixed(trace.kd, 1)}${trace === activeTrace && running ? " (running)" : ""}`,
+          color: trace.color,
+          dashed: false,
+        })),
+      ];
+      const legendRows = Math.ceil(legendEntries.length / legendColumns);
+      const height = headerHeight + chartHeight + 80 + legendRows * 31;
+      const resolutionScale = 2; // 2240 px wide PNG
+      const bitmap = document.createElement("canvas");
+      bitmap.width = width * resolutionScale;
+      bitmap.height = height * resolutionScale;
+      const imageContext = bitmap.getContext("2d");
+      if (!imageContext) return;
+      imageContext.scale(resolutionScale, resolutionScale);
+      imageContext.fillStyle = "#ffffff";
+      imageContext.fillRect(0, 0, width, height);
+
+      imageContext.fillStyle = "#19283a";
+      imageContext.font = 'bold 23px system-ui, -apple-system, "Segoe UI", sans-serif';
+      imageContext.textAlign = "left";
+      imageContext.textBaseline = "alphabetic";
+      imageContext.fillText("Quadcopter PID Simulator - Altitude Response", margin, 41);
+      imageContext.fillStyle = "#65758a";
+      imageContext.font = '13px system-ui, -apple-system, "Segoe UI", sans-serif';
+      imageContext.fillText("Closed-loop step response | Third-order plant | Time: -1 to 30 s", margin, 64);
+
+      imageContext.save();
+      imageContext.translate(margin, headerHeight);
+      drawChart(imageContext, width - 2 * margin, chartHeight);
+      imageContext.restore();
+
+      const footerY = headerHeight + chartHeight + 18;
+      imageContext.strokeStyle = "#e2e8f0";
+      imageContext.lineWidth = 1;
+      imageContext.beginPath();
+      imageContext.moveTo(margin, footerY);
+      imageContext.lineTo(width - margin, footerY);
+      imageContext.stroke();
+      imageContext.fillStyle = "#19283a";
+      imageContext.font = 'bold 15px system-ui, -apple-system, "Segoe UI", sans-serif';
+      imageContext.fillText("Chart legend", margin, footerY + 25);
+
+      const colWidth = (width - 2 * margin) / legendColumns;
+      const legendTop = footerY + 49;
+      imageContext.font = '13px system-ui, -apple-system, "Segoe UI", sans-serif';
+      for (let i = 0; i < legendEntries.length; i++) {
+        const entry = legendEntries[i];
+        const x = margin + (i % legendColumns) * colWidth;
+        const y = legendTop + Math.floor(i / legendColumns) * 31;
+        imageContext.strokeStyle = entry.color;
+        imageContext.lineWidth = 3;
+        imageContext.setLineDash(entry.dashed ? [7, 5] : []);
+        imageContext.beginPath();
+        imageContext.moveTo(x, y - 4);
+        imageContext.lineTo(x + 29, y - 4);
+        imageContext.stroke();
+        imageContext.setLineDash([]);
+        imageContext.fillStyle = "#33485c";
+        imageContext.fillText(entry.label, x + 42, y);
+      }
+
+      bitmap.toBlob((blob) => {
+        if (!blob) return;
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = "PID-Altitude-Response.png";
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      }, "image/png");
+    }
+
     function resizeChart() {
       const rect = canvas.getBoundingClientRect();
       const pixelRatio = Math.max(1, window.devicePixelRatio || 1);
@@ -591,6 +686,7 @@
     function initialize() {
       startButton.addEventListener("click", startTrace);
       clearButton.addEventListener("click", clearAll);
+      saveChartButton.addEventListener("click", saveChartAsPNG);
       gains.forEach((gain, index) => {
         gain.addEventListener("input", () => updateGain(index));
         gain.addEventListener("wheel", (event) => {
