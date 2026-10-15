@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f2f6fa">
+  <meta name="description" content="A free, browser-based PID controller simulator for quadcopter altitude. Change PID gains, compare traces, and scrub through flight time.">
+  <title>Quadcopter PID Simulator | Engineering 401</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #19283a;
+      --sub: #65758a;
+      --line: #d9e3ed;
+      --card: #fff;
+      --accent: #167caa;
+      --accent-dark: #105d82;
+      --ground: #4b976a;
+      --back: #f3f6fa;
+    }
+    * { box-sizing: border-box; }
+    body {
+      background: var(--back);
+      color: var(--ink);
+      margin: 0;
+      font: 15px/1.5 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    button, select, input { font: inherit; }
+    button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px solid #65a9da; outline-offset: 3px; }
+    .page { width: min(1430px, calc(100% - 40px)); margin: 0 auto; padding: 28px 0 32px; }
+    .masthead { display: flex; flex-wrap: wrap; gap: 18px; justify-content: space-between; align-items: center; margin-bottom: 22px; }
+    .brand { display: flex; align-items: center; gap: 15px; }
+    .brand-icon { display: grid; place-items: center; width: 54px; height: 54px; background: #e2f0fa; border: 1px solid #c8e4f5; border-radius: 15px; flex: none; }
+    h1 { font-size: clamp(22px, 2.45vw, 30px); font-weight: 750; letter-spacing: -.035em; line-height: 1.15; margin: 0 0 5px; }
+    .subtitle, .hint { color: var(--sub); }
+    .subtitle { margin: 0; font-size: 14px; }
+    .model-pill { background: #eaf2f8; border: 1px solid #d4e2ed; padding: 8px 13px; font-size: 12px; color: #41637c; border-radius: 999px; white-space: nowrap; }
+    .workspace { display: grid; grid-template-columns: minmax(0, 2fr) minmax(300px, .83fr); gap: 18px; align-items: stretch; }
+    .panel { min-width: 0; background: var(--card); border: 1px solid var(--line); border-radius: 15px; box-shadow: 0 6px 30px rgba(33, 54, 78, .035); }
+    .chart-panel { padding: 20px 22px 14px; display: flex; flex-direction: column; }
+    .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+    h2 { font-size: 16px; font-weight: 750; letter-spacing: -.014em; margin: 0; }
+    .status { display: inline-flex; align-items: center; gap: 7px; color: #53677b; font-size: 12px; background: #f4f7fa; padding: 6px 10px; border-radius: 8px; }
+    .status-dot { width: 7px; height: 7px; flex: none; border-radius: 50%; background: #8ca0af; }
+    .status.running .status-dot { background: #22926c; box-shadow: 0 0 0 4px #e2f5ed; }
+    .status.finished .status-dot { background: #167caa; }
+    .chart-stage { height: 396px; margin-top: 10px; position: relative; min-width: 0; }
+    #response-chart { width: 100%; height: 100%; display: block; }
+    .chart-footer { display: flex; flex-wrap: wrap; gap: 8px 17px; justify-content: space-between; align-items: center; border-top: 1px solid #eef2f6; padding: 14px 0 0; }
+    .legend { display: flex; gap: 8px 15px; flex-wrap: wrap; align-items: center; min-height: 23px; }
+    .legend-item { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: #506376; }
+    .line-key { display: inline-block; width: 23px; border-top: 3px solid; }
+    .line-key.dashed { border-top-style: dashed; }
+    .chart-note { font-size: 11px; color: #8a97a7; }
+    .drone-panel { padding: 20px; display: flex; flex-direction: column; }
+    .drone-panel h2 { margin-bottom: 12px; }
+    .drone-stage { position: relative; overflow: hidden; background: linear-gradient(#dceffa 0%, #eff8fc 100%); border: 1px solid #cbe2ef; border-radius: 12px; height: 374px; }
+    .drone-stage svg { width: 100%; height: 100%; display: block; }
+    .drone-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+    .stat { border: 1px solid #e9eef3; border-radius: 10px; padding: 10px 12px; }
+    .stat-label { color: var(--sub); font-size: 11px; margin-bottom: 2px; }
+    .stat-value { font-size: 20px; line-height: 1.22; font-weight: 740; font-variant-numeric: tabular-nums; }
+    .stat-value small { font-size: 12px; color: var(--sub); font-weight: 500; }
+    .controls { margin-top: 18px; padding: 20px 22px 22px; }
+    .controls-title { display: flex; justify-content: space-between; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 18px; }
+    .controls-title .hint { font-size: 12px; }
+    .control-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px 28px; }
+    .control-topline { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin-bottom: 8px; }
+    .control-label { font-size: 14px; font-weight: 690; }
+    .control-value { min-width: 48px; color: var(--accent-dark); text-align: right; font-variant-numeric: tabular-nums; font-weight: 710; }
+    input[type=range] { accent-color: var(--accent); display: block; width: 100%; cursor: pointer; height: 22px; margin: 0; }
+    input[type=range]:disabled { cursor: not-allowed; opacity: .33; }
+    .scale-labels { display: flex; justify-content: space-between; color: #97a5b4; font-size: 11px; margin-top: 2px; font-variant-numeric: tabular-nums; }
+    .controls-bottom { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 20px; padding-top: 21px; margin-top: 22px; border-top: 1px solid #eef2f6; }
+    .time-control { max-width: 650px; }
+    .time-hint { font-size: 11px; color: #8694a2; margin: 7px 0 0; }
+    .actions { display: flex; align-items: end; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+    .select-wrap { display: flex; flex-direction: column; gap: 5px; margin-right: 4px; }
+    .select-wrap label { color: var(--sub); font-size: 11px; }
+    select { height: 43px; min-width: 102px; padding: 0 9px; background: white; color: var(--ink); border-radius: 9px; border: 1px solid #d5e0e9; }
+    button { min-height: 43px; padding: 0 19px; border: 1px solid #d6e1e8; background: white; color: #344b5f; border-radius: 9px; cursor: pointer; font-weight: 680; transition: background .15s ease, transform .1s ease; }
+    button:hover:not(:disabled) { background: #edf4f8; }
+    button:active:not(:disabled) { transform: translateY(1px); }
+    button.primary { background: var(--accent); border-color: var(--accent); color: white; }
+    button.primary:hover:not(:disabled) { background: var(--accent-dark); }
+    button:disabled { cursor: not-allowed; opacity: .4; }
+    .app-footer { padding: 17px 3px 0; color: #7d8c9b; font-size: 12px; }
+    .help-link { color: #206f9a; text-decoration: none; }
+    .help-link:hover { text-decoration: underline; }
+    @media (max-width: 950px) {
+      .workspace { grid-template-columns: 1fr; }
+      .drone-panel { display: grid; grid-template-columns: 1fr 1fr; align-items: start; gap: 12px 16px; }
+      .drone-panel h2 { grid-column: 1 / -1; margin: 0; }
+      .drone-stage { height: 310px; }
+      .drone-stats { display: flex; flex-direction: column; margin: 0; }
+    }
+    @media (max-width: 720px) {
+      .page { width: min(100% - 24px, 650px); padding: 16px 0 22px; }
+      .brand-icon { width: 45px; height: 45px; }
+      .model-pill { display: none; }
+      .chart-panel, .drone-panel, .controls { padding: 15px; }
+      .chart-stage { height: 320px; }
+      .control-grid { grid-template-columns: 1fr; gap: 17px; }
+      .controls-bottom { grid-template-columns: 1fr; }
+      .actions { justify-content: flex-start; }
+      .drone-panel { grid-template-columns: 1fr; }
+      .drone-stage { height: 330px; }
+      .drone-stats { flex-direction: row; }
+      .stat { flex: 1; }
+      .controls-title { margin-bottom: 14px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      button { transition: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header class="masthead">
+      <div class="brand">
+        <div class="brand-icon" aria-hidden="true">
+          <svg width="35" height="35" viewBox="0 0 64 64" fill="none">
+            <path d="M10 22h44M15 21v-9m34 9v-9M8 11h14m20 0h14" stroke="#3d759a" stroke-width="4" stroke-linecap="round"/>
+            <rect x="16" y="23" width="32" height="13" rx="6" fill="#497a96"/>
+            <circle cx="32" cy="23" r="5" fill="#2d5065"/>
+            <path d="M32 35v7" stroke="#577588" stroke-width="3"/>
+            <path d="M24 43h16l-5 8h-6z" fill="#b93335"/>
+          </svg>
+        </div>
+        <div>
+          <h1>Quadcopter PID Simulator</h1>
+          <p class="subtitle">Engineering 401 &middot; Interactive closed-loop altitude control</p>
+        </div>
+      </div>
+      <div class="model-pill">10 ft setpoint &nbsp;&middot;&nbsp; RK4 simulation &nbsp;&middot;&nbsp; Third-order plant</div>
+    </header>
+
+    <main>
+      <section class="workspace" aria-label="Simulation graphics">
+        <div class="panel chart-panel">
+          <div class="panel-head">
+            <h2>Altitude response</h2>
+            <div class="status" id="status" role="status" aria-live="polite">
+              <span class="status-dot"></span><span id="status-text">Ready to simulate</span>
+            </div>
+          </div>
+          <div class="chart-stage">
+            <canvas id="response-chart" role="img" aria-label="Graph of simulated altitude and ten-foot reference versus time, from minus one to thirty seconds."></canvas>
+          </div>
+          <div class="chart-footer">
+            <div id="legend" class="legend" aria-label="Plot legend"></div>
+            <div class="chart-note" id="trace-counter">0 completed traces</div>
+          </div>
+        </div>
+
+        <div class="panel drone-panel">
+          <h2>Live drone view</h2>
+          <div class="drone-stage">
+            <svg viewBox="0 0 300 440" role="img" aria-label="A drone moving up and down on an altitude scale, with a horizontal ten-foot setpoint line.">
+              <defs>
+                <linearGradient id="grass" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#84bd79"/><stop offset="1" stop-color="#5d9964"/></linearGradient>
+                <filter id="drone-shadow" x="-40%" y="-80%" width="180%" height="280%"><feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#31526c" flood-opacity=".25"/></filter>
+              </defs>
+              <g font-family="system-ui, sans-serif" font-size="11" fill="#62839b">
+                <g stroke="#afcedf" stroke-width=".8" stroke-dasharray="3 5" opacity=".75">
+                  <line x1="42" y1="74" x2="286" y2="74"/><line x1="42" y1="180.7" x2="286" y2="180.7"/>
+                  <line x1="42" y1="287.3" x2="286" y2="287.3"/><line x1="42" y1="394" x2="286" y2="394"/>
+                </g>
+                <text x="9" y="78">15 ft</text><text x="9" y="184">10 ft</text><text x="15" y="291">5 ft</text><text x="15" y="398">0 ft</text>
+              </g>
+              <line x1="40" y1="180.7" x2="290" y2="180.7" stroke="#8b6b7a" stroke-width="1.7" stroke-dasharray="7 5"/>
+              <rect x="0" y="396" width="300" height="44" fill="url(#grass)"/>
+              <line x1="0" y1="395.5" x2="300" y2="395.5" stroke="#4d8c5d" stroke-width="2"/>
+              <g id="drone-icon" transform="translate(164 394)" filter="url(#drone-shadow)">
+                <path d="M-31 -13V-28 M31 -13V-28 M-40 -28H-22 M22 -28H40" stroke="#555f68" stroke-width="3" stroke-linecap="round"/>
+                <circle cx="0" cy="-17" r="7" fill="#374451" stroke="#243343" stroke-width="1"/>
+                <rect x="-44" y="-12" width="88" height="23" rx="11" fill="#a5b0b7" stroke="#596b79" stroke-width="2"/>
+                <rect x="-47" y="-3" width="7" height="4" rx="2" fill="#6e7880"/>
+                <rect x="40" y="-3" width="7" height="4" rx="2" fill="#6e7880"/>
+                <line x1="0" y1="11" x2="0" y2="22" stroke="#596b79" stroke-width="3"/>
+                <path d="M-15 22Q0 44 15 22Z" fill="#b3292b" stroke="#7b1c22" stroke-width="2"/>
+              </g>
+            </svg>
+          </div>
+          <div class="drone-stats">
+            <div class="stat"><div class="stat-label">Current altitude</div><div class="stat-value"><span id="altitude-value">0.00</span> <small>ft</small></div></div>
+            <div class="stat"><div class="stat-label">Simulation time</div><div class="stat-value"><span id="time-value">-1.00</span> <small>s</small></div></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel controls" aria-label="PID controller controls">
+        <div class="controls-title">
+          <h2>Controller gains</h2>
+          <span class="hint">Move any gain to enable another trace. Hover over sliders and use the mouse wheel for fine adjustments.</span>
+        </div>
+        <div class="control-grid">
+          <div class="control-field">
+            <div class="control-topline"><label class="control-label" for="kp">Proportional (Kp)</label><output class="control-value" for="kp" id="kp-value">1.0</output></div>
+            <input type="range" id="kp" min="0" max="100" step="0.1" value="1.0">
+            <div class="scale-labels"><span>0</span><span>100</span></div>
+          </div>
+          <div class="control-field">
+            <div class="control-topline"><label class="control-label" for="ki">Integral (Ki)</label><output class="control-value" for="ki" id="ki-value">0.0</output></div>
+            <input type="range" id="ki" min="0" max="50" step="0.1" value="0">
+            <div class="scale-labels"><span>0</span><span>50</span></div>
+          </div>
+          <div class="control-field">
+            <div class="control-topline"><label class="control-label" for="kd">Derivative (Kd)</label><output class="control-value" for="kd" id="kd-value">0.0</output></div>
+            <input type="range" id="kd" min="0" max="50" step="0.1" value="0">
+            <div class="scale-labels"><span>0</span><span>50</span></div>
+          </div>
+        </div>
+        <div class="controls-bottom">
+          <div class="time-control">
+            <div class="control-topline"><label class="control-label" for="scrub">Scrub time (newest completed trace)</label><output class="control-value" for="scrub" id="scrub-value">-1.00 s</output></div>
+            <input type="range" id="scrub" min="-1" max="30" step="0.01" value="-1" disabled>
+            <div class="scale-labels"><span>-1 s</span><span>30 s</span></div>
+            <p class="time-hint" id="scrub-hint">Available after the current simulation finishes.</p>
+          </div>
+          <div class="actions">
+            <div class="select-wrap">
+              <label for="speed">Playback speed</label>
+              <select id="speed" aria-label="Playback speed">
+                <option value="1">1x</option><option value="2">2x</option><option value="4" selected>4x</option><option value="8">8x</option><option value="16">16x</option>
+              </select>
+            </div>
+            <button id="clear" type="button">Clear all</button>
+            <button class="primary" id="start" type="button">Start new trace</button>
+          </div>
+        </div>
+      </section>
+    </main>
+    <footer class="app-footer">Runs entirely in your browser. No Python installation, student accounts, server, or external libraries required. Model and controller equations match the provided Engineering 401 Python simulator.</footer>
+  </div>
+
+  <script>
+  (() => {
+    "use strict";
+
+    // Original Python model, ported directly to JavaScript:
+    // state = [y, ydot, yddot, integral(error)]
+    // u = Kp * (r - y) + Ki * integral(error) - Kd * ydot
+    // y''' = u/T^3 - 6*y''/T - 11*y'/T^2 - 6*y/T^3, T = 2.
+    // Integrator: fourth-order Runge-Kutta, 0.01-second simulation steps.
+    const T0 = -1.0;
+    const TF = 30.0;
+    const DT = 0.01;
+    const TOTAL_STEPS = Math.round((TF - T0) / DT);
+    const SETPOINT = 10;
+    const SLOWDOWN = 2;
+    const TRACE_COLORS = ["#1689bd", "#e07745", "#7e66c1", "#2a9b7b", "#be5288", "#7e9136", "#c69d20", "#3f7692"];
+
+    const $ = (id) => document.getElementById(id);
+    const canvas = $("response-chart");
+    const ctx = canvas.getContext("2d");
+    const gains = [$("kp"), $("ki"), $("kd")];
+    const gainValues = [$("kp-value"), $("ki-value"), $("kd-value")];
+    const scrub = $("scrub");
+    const startButton = $("start");
+    const clearButton = $("clear");
+    const status = $("status");
+    const statusText = $("status-text");
+    const droneIcon = $("drone-icon");
+    const legend = $("legend");
+    const traceCounter = $("trace-counter");
+
+    let traces = [];
+    let activeTrace = null;
+    let currentState = [0, 0, 0, 0];
+    let currentStep = 0;
+    let running = false;
+    let activeFinished = false;
+    let gainsDirty = true;
+    let runCount = 0;
+    let animationFrame = null;
+    let previousFrame = null;
+    let accumulatedSimulationTime = 0;
+    let scrubbedTime = null;
+    let chartWidth = 0;
+    let chartHeight = 0;
+
+    const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+    const fixed = (v, digits) => Number(v).toFixed(digits);
+    const currentTime = () => T0 + currentStep * DT;
+
+    function derivatives(state, r, kp, ki, kd) {
+      const [y, ydot, yddot, integral] = state;
+      const e = r - y;
+      const u = kp * e + ki * integral - kd * ydot;
+      const ydddot = u / (SLOWDOWN ** 3)
+        - 6 * yddot / SLOWDOWN
+        - 11 * ydot / (SLOWDOWN ** 2)
+        - 6 * y / (SLOWDOWN ** 3);
+      return [ydot, yddot, ydddot, e];
+    }
+
+    function rk4Step(state, r, kp, ki, kd, h) {
+      const addScaled = (src, increment, scalar) => src.map((n, i) => n + scalar * increment[i]);
+      const k1 = derivatives(state, r, kp, ki, kd);
+      const k2 = derivatives(addScaled(state, k1, h / 2), r, kp, ki, kd);
+      const k3 = derivatives(addScaled(state, k2, h / 2), r, kp, ki, kd);
+      const k4 = derivatives(addScaled(state, k3, h), r, kp, ki, kd);
+      return state.map((n, i) => n + h / 6 * (k1[i] + 2 * k2[i] + 2 * k3[i] + k4[i]));
+    }
+
+    function displayDrone(y, t) {
+      // Scale: 0 ft is at SVG y=394; 15 ft is at SVG y=74.
+      // Clamp only the drawing, not the physical simulation or numeric readout.
+      const altitudeOnScreen = clamp(y, -1.0, 15.0);
+      const svgY = 394 - altitudeOnScreen * (320 / 15);
+      droneIcon.setAttribute("transform", `translate(164 ${svgY})`);
+      $("altitude-value").textContent = Number.isFinite(y) ? fixed(y, 2) : "--";
+      $("time-value").textContent = fixed(t, 2);
+    }
+
+    function markStatus(kind, message) {
+      status.className = `status ${kind}`;
+      statusText.textContent = message;
+    }
+
+    function updateButtons() {
+      startButton.disabled = running || !gainsDirty;
+      clearButton.disabled = running;
+      scrub.disabled = running || !activeFinished;
+      $("scrub-hint").textContent = scrub.disabled
+        ? "Available after the current simulation finishes."
+        : "Drag or scroll to move the drone along the latest trace.";
+    }
+
+    function refreshLegend() {
+      legend.replaceChildren();
+      const reference = document.createElement("span");
+      reference.className = "legend-item";
+      const referenceLine = document.createElement("span");
+      referenceLine.className = "line-key dashed";
+      referenceLine.style.borderColor = "#76869a";
+      reference.append(referenceLine, document.createTextNode("Reference: 10 ft"));
+      legend.appendChild(reference);
+      for (const trace of traces) {
+        const item = document.createElement("span");
+        item.className = "legend-item";
+        const line = document.createElement("span");
+        line.className = "line-key";
+        line.style.borderColor = trace.color;
+        const label = document.createTextNode(`Trace ${trace.id} (Kp ${trace.kp}, Ki ${trace.ki}, Kd ${trace.kd})`);
+        item.append(line, label);
+        legend.append(item);
+      }
+      const finished = traces.filter((trace) => trace.finished).length;
+      traceCounter.textContent = `${finished} completed trace${finished === 1 ? "" : "s"}`;
+    }
+
+    function stepOnce() {
+      const reference = currentTime() >= 0 ? SETPOINT : 0;
+      currentState = rk4Step(currentState, reference, activeTrace.kp, activeTrace.ki, activeTrace.kd, DT);
+      currentStep++;
+      const y = currentState[0];
+      if (currentState.some((n) => !Number.isFinite(n) || Math.abs(n) > 1e9)) {
+        // Cap an extremely unstable simulation before rendering non-finite coordinates.
+        finishTrace(false);
+        return;
+      }
+      activeTrace.times.push(currentTime());
+      activeTrace.altitudes.push(y);
+      if (currentStep >= TOTAL_STEPS) finishTrace(true);
+    }
+
+    function simulationFrame(timestamp) {
+      animationFrame = null;
+      if (!running) return;
+      if (previousFrame === null) previousFrame = timestamp;
+      const elapsedSeconds = Math.min((timestamp - previousFrame) / 1000, 0.12);
+      previousFrame = timestamp;
+      accumulatedSimulationTime += elapsedSeconds * Number($("speed").value);
+      const steps = Math.min(Math.floor(accumulatedSimulationTime / DT), 900);
+      accumulatedSimulationTime -= steps * DT;
+      for (let i = 0; i < steps && running; i++) stepOnce();
+      if (running) {
+        displayDrone(currentState[0], currentTime());
+        markStatus("running", `Trace ${activeTrace.id} running - ${fixed(currentTime(), 2)} s`);
+      }
+      drawChart();
+      if (running) animationFrame = requestAnimationFrame(simulationFrame);
+    }
+
+    function startTrace() {
+      if (running || !gainsDirty) return;
+      const [kp, ki, kd] = gains.map((input) => Number(input.value));
+      runCount++;
+      activeTrace = {
+        id: runCount, kp, ki, kd,
+        color: TRACE_COLORS[(runCount - 1) % TRACE_COLORS.length],
+        times: [T0], altitudes: [0], finished: false,
+      };
+      traces.push(activeTrace);
+      currentState = [0, 0, 0, 0];
+      currentStep = 0;
+      running = true;
+      gainsDirty = false;
+      activeFinished = false;
+      scrubbedTime = null;
+      scrub.value = String(T0);
+      $("scrub-value").textContent = "-1.00 s";
+      displayDrone(0, T0);
+      previousFrame = null;
+      accumulatedSimulationTime = 0;
+      markStatus("running", `Trace ${runCount} running - -1.00 s`);
+      updateButtons();
+      refreshLegend();
+      drawChart();
+      if (animationFrame !== null) cancelAnimationFrame(animationFrame);
+      animationFrame = requestAnimationFrame(simulationFrame);
+    }
+
+    function finishTrace(success) {
+      running = false;
+      activeTrace.finished = success;
+      activeFinished = success;
+      previousFrame = null;
+      accumulatedSimulationTime = 0;
+      if (success) {
+        scrub.value = String(TF);
+        scrubbedTime = TF;
+        $("scrub-value").textContent = "30.00 s";
+        displayDrone(currentState[0], TF);
+        markStatus("finished", `Trace ${activeTrace.id} finished`);
+      } else {
+        scrubbedTime = null;
+        markStatus("", `Trace ${activeTrace.id} exceeded numeric limits`);
+      }
+      updateButtons();
+      refreshLegend();
+      drawChart();
+    }
+
+    function clearAll() {
+      if (running) return;
+      traces = [];
+      activeTrace = null;
+      runCount = 0;
+      currentState = [0, 0, 0, 0];
+      currentStep = 0;
+      activeFinished = false;
+      gainsDirty = true;
+      scrubbedTime = null;
+      scrub.value = String(T0);
+      $("scrub-value").textContent = "-1.00 s";
+      displayDrone(0, T0);
+      markStatus("", "Ready to simulate");
+      refreshLegend();
+      updateButtons();
+      drawChart();
+    }
+
+    function updateGain(index) {
+      gainValues[index].textContent = fixed(gains[index].value, 1);
+      gainsDirty = true;
+      updateButtons();
+    }
+
+    function altitudeAt(t, trace) {
+      if (!trace || trace.altitudes.length === 0) return 0;
+      const index = clamp((t - T0) / DT, 0, trace.altitudes.length - 1);
+      const lo = Math.floor(index);
+      const hi = Math.min(lo + 1, trace.altitudes.length - 1);
+      const w = index - lo;
+      return trace.altitudes[lo] * (1 - w) + trace.altitudes[hi] * w;
+    }
+
+    function updateScrub() {
+      if (running || !activeFinished || !activeTrace) return;
+      scrubbedTime = Number(scrub.value);
+      const y = altitudeAt(scrubbedTime, activeTrace);
+      $("scrub-value").textContent = `${fixed(scrubbedTime, 2)} s`;
+      displayDrone(y, scrubbedTime);
+      drawChart();
+    }
+
+    function niceStep(maxRange) {
+      const exponent = Math.floor(Math.log10(maxRange));
+      const normalized = maxRange / 10 ** exponent;
+      return (normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10) * 10 ** exponent;
+    }
+
+    function drawChart() {
+      if (!ctx || chartWidth <= 0 || chartHeight <= 0) return;
+      const w = chartWidth;
+      const h = chartHeight;
+      ctx.clearRect(0, 0, w, h);
+      const plot = { x: 61, y: 20, w: Math.max(10, w - 83), h: Math.max(10, h - 72) };
+      let minY = -1;
+      let maxY = 15;
+      for (const trace of traces) {
+        for (const alt of trace.altitudes) {
+          if (!Number.isFinite(alt)) continue;
+          minY = Math.min(minY, alt - Math.max(1, Math.abs(alt) * .04));
+          maxY = Math.max(maxY, alt + Math.max(1, Math.abs(alt) * .04));
+        }
+      }
+      if (maxY - minY < 4) { minY -= 2; maxY += 2; }
+      const mapX = (t) => plot.x + ((t - T0) / (TF - T0)) * plot.w;
+      const mapY = (y) => plot.y + (1 - (y - minY) / (maxY - minY)) * plot.h;
+      const axisFont = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+      ctx.font = axisFont;
+      ctx.textBaseline = "middle";
+      const step = niceStep((maxY - minY) / 5);
+      const minTick = Math.ceil(minY / step) * step;
+
+      ctx.strokeStyle = "#e9eef4";
+      ctx.lineWidth = 1;
+      ctx.fillStyle = "#75869a";
+      ctx.textAlign = "right";
+      for (let tick = minTick; tick <= maxY + step * .001; tick += step) {
+        const y = mapY(tick);
+        ctx.beginPath(); ctx.moveTo(plot.x, y); ctx.lineTo(plot.x + plot.w, y); ctx.stroke();
+        ctx.fillText(Number(tick.toFixed(4)).toLocaleString("en-US", {maximumFractionDigits: 3}), plot.x - 10, y);
+      }
+      ctx.textAlign = "center";
+      for (let t = 0; t <= 30; t += 5) {
+        const x = mapX(t);
+        ctx.beginPath(); ctx.moveTo(x, plot.y); ctx.lineTo(x, plot.y + plot.h); ctx.stroke();
+        ctx.fillText(String(t), x, plot.y + plot.h + 17);
+      }
+      ctx.strokeStyle = "#b9c7d5";
+      ctx.lineWidth = 1.3;
+      ctx.beginPath(); ctx.moveTo(plot.x, plot.y); ctx.lineTo(plot.x, plot.y + plot.h); ctx.lineTo(plot.x + plot.w, plot.y + plot.h); ctx.stroke();
+
+      ctx.save();
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillStyle = "#516477";
+      ctx.font = '13px system-ui, -apple-system, "Segoe UI", sans-serif';
+      ctx.fillText("Time [s]", plot.x + plot.w / 2, h - 12);
+      ctx.translate(16, plot.y + plot.h / 2);
+      ctx.rotate(-Math.PI / 2);
+      ctx.fillText("Altitude [ft]", 0, 0);
+      ctx.restore();
+
+      ctx.save();
+      ctx.beginPath(); ctx.rect(plot.x, plot.y, plot.w, plot.h); ctx.clip();
+      // Vertical edge at t=0 reproduces the specified command step.
+      ctx.strokeStyle = "#748599";
+      ctx.lineWidth = 2;
+      ctx.setLineDash([7, 6]);
+      ctx.beginPath();
+      ctx.moveTo(mapX(T0), mapY(0));
+      ctx.lineTo(mapX(0), mapY(0));
+      ctx.lineTo(mapX(0), mapY(SETPOINT));
+      ctx.lineTo(mapX(TF), mapY(SETPOINT));
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      for (const trace of traces) {
+        if (trace.times.length < 2) continue;
+        ctx.strokeStyle = trace.color;
+        ctx.lineWidth = trace === activeTrace ? 2.8 : 2;
+        ctx.lineJoin = "round";
+        ctx.beginPath();
+        for (let i = 0; i < trace.times.length; i++) {
+          const x = mapX(trace.times[i]);
+          const y = mapY(trace.altitudes[i]);
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+      }
+      if (activeFinished && activeTrace && scrubbedTime !== null) {
+        const markerY = altitudeAt(scrubbedTime, activeTrace);
+        const x = mapX(scrubbedTime);
+        const y = mapY(markerY);
+        ctx.fillStyle = "#fff";
+        ctx.strokeStyle = "#243849";
+        ctx.lineWidth = 2.2;
+        ctx.beginPath(); ctx.arc(x, y, 5.1, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    function resizeChart() {
+      const rect = canvas.getBoundingClientRect();
+      const pixelRatio = Math.max(1, window.devicePixelRatio || 1);
+      chartWidth = rect.width;
+      chartHeight = rect.height;
+      canvas.width = Math.round(chartWidth * pixelRatio);
+      canvas.height = Math.round(chartHeight * pixelRatio);
+      ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+      drawChart();
+    }
+
+    function initialize() {
+      startButton.addEventListener("click", startTrace);
+      clearButton.addEventListener("click", clearAll);
+      gains.forEach((gain, index) => {
+        gain.addEventListener("input", () => updateGain(index));
+        gain.addEventListener("wheel", (event) => {
+          event.preventDefault();
+          const delta = Math.sign(-event.deltaY);
+          const value = clamp(Math.round((Number(gain.value) + delta * .1) * 10) / 10, Number(gain.min), Number(gain.max));
+          if (value !== Number(gain.value)) {
+            gain.value = String(value);
+            updateGain(index);
+          }
+        }, { passive: false });
+      });
+      scrub.addEventListener("input", updateScrub);
+      scrub.addEventListener("wheel", (event) => {
+        if (scrub.disabled) return;
+        event.preventDefault();
+        const step = Math.sign(-event.deltaY) * .5;
+        scrub.value = String(clamp(Math.round((Number(scrub.value) + step) * 100) / 100, T0, TF));
+        updateScrub();
+      }, { passive: false });
+      refreshLegend();
+      updateButtons();
+      displayDrone(0, T0);
+      const observer = new ResizeObserver(resizeChart);
+      observer.observe(canvas);
+      resizeChart();
+    }
+
+    initialize();
+    // Expose numerical code to a test harness only; no server is needed.
+    window.pidSimulatorMath = Object.freeze({ rk4Step, derivatives, DT, T0, TF, SETPOINT });
+  })();
+  </script>
+</body>
+</html>
